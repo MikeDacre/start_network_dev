@@ -1,0 +1,11 @@
+[Unit]
+Description=Start Static Network Without Routing
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/start_network_dev start eth0 192.168.0.2
+ExecStop=/usr/bin/start_network_dev stop eth0 192.168.0.2
+
+[Install]
+WantedBy=multi-user.target

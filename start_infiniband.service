@@ -1,0 +1,11 @@
+[Unit]
+Description=Start Infiniband IPoIB Device
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/start_network_dev -i start ib0 192.168.1.2
+ExecStop=/usr/bin/start_network_dev -i stop ib0 192.168.1.2
+
+[Install]
+WantedBy=multi-user.target
