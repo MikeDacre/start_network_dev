@@ -33,7 +33,7 @@ setup(
 
     keywords='ip, network, systemd',
 
-    scripts=['bin/start_network_dev'],
+    scripts=['start_network_dev'],
     packages=['network_dev']
 
 )
