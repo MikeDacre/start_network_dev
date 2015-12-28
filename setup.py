@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='start_network_dev',
-    version='0.1',
+    version='0.9',
     description='Simple system to manually start a network device with a static IP using systemd',
     long_description=long_description,
     url='https://github.com/MikeDacre/start_network_dev',

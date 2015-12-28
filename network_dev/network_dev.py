@@ -19,30 +19,41 @@ class Devices(object):
                 k, v = re.findall(r'^[0-9]: ([^:]+).*state (\S+)', i)[0]
                 self.states[k] = v
         # Get IPs
-        j = re.split(r'\n[0-9]: ', sub(['ip', 'addr', 'show']).decode().strip())
-        j[0] = j[0].lstrip('1: ')
-        for i in j:
-            if re.search(r'inet [0-9]', i):
-                k = re.findall(r'^([^:]+):', i)[0]
-                v = re.findall(r'inet ([^ ]+)', i)[0]
-                self.ips[k] = v
+        r = re.compile(r'[0-9]+: ([^:]+): ')
+        q = re.compile(r'inet[6]? ([^ ]+) ')
+        c = ''
+        ips = []
+        for i in sub(['ip', 'addr', 'show']).decode().strip().split('\n'):
+            i = i.strip()
+            if r.match(i):
+                if c:
+                    if c in self.ips:
+                        raise Exception("{0} should not be in IP list already".format(c))
+                    if ips:
+                        self.ips[c] = ips
+                c = r.findall(i)[0]
+                ips = []
+                continue
+            if q.match(i):
+                if c:
+                    ips.append(q.findall(i)[0])
 
     def __getitem__(self, key):
-        try:
-            return self.states[key]
-        except KeyError:
-            return None
+        return self.states.get(key)
+
+    def __iter__(self):
+        return iter(self.states)
 
     def __len__(self):
         return len(self.states)
 
     def __repr__(self):
         r = []
-        r.append('{0:>12}\t{1:<10} {2}'.format('Device', 'State', 'IP'))
-        r.append('{0:>12}\t{1:<10} {2}'.format('------', '-----', '--'))
+        r.append('{0:>16}    {1:<10} {2}'.format('Device', 'State', 'IP'))
+        r.append('{0:>16}    {1:<10} {2}'.format('------', '-----', '--'))
         for k, v in self.states.items():
             ip = self.ips[k] if k in self.ips else 'NA'
-            r.append('{0:>12}:\t{1:<10} {2}'.format(repr(k), repr(v), repr(ip)))
+            r.append('{0:>16}:   {1:<10} {2}'.format(repr(k), repr(v), repr(ip)))
         return '\n'.join(r)
 
 
@@ -57,14 +68,20 @@ class Routes(object):
                 k, v = re.findall(r'^default via ([^ ]+) dev (\S+)', i)[0]
                 self.default_routes[k] = v
             elif re.match(r'^[0-9]', i):
-                k, v = re.findall(r'^([^/]+)/[0-9][0-9] dev (\S+)', i)[0]
-                self.routes[k] = v
+                try:
+                    k, v = re.findall(r'^([^/]+)/[0-9][0-9] dev (\S+)', i)[0]
+                    self.routes[k] = v
+                except IndexError:
+                    pass
 
     def __getitem__(self, key):
         try:
             return self.routes[key]
         except KeyError:
             return None
+
+    def __iter__(self):
+        return iter(self.routes)
 
     def __len__(self):
         return len(self.routes)

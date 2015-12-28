@@ -4,24 +4,41 @@
 """
 #============================================================================#
 #                                                                            #
-#          FILE: start_network_dev                                           #
+#                start_network_dev                                           #
+#                                                                            #
 #        AUTHOR: Michael D Dacre, mike.dacre@gmail.com                       #
 #  ORGANIZATION: Stanford University                                         #
 #       LICENSE: MIT License, property of Stanford, use as you wish          #
-# Last modified: 2015-12-28 12:44                                            #
+# Last modified: 2015-12-28 15:53                                            #
 #                                                                            #
 #============================================================================#
 """
-from os import system
+from subprocess import call
+from os import environ
 import argparse
 import sys
+from time import sleep
 
 # Import myself
 import network_dev
 
+# Get initial routes and devices
+routes  = network_dev.Routes()
+devices = network_dev.Devices()
 
-def main(mode, device, ip, route=False):
+
+# Functions
+def system(string):
+    if call(string.split(' ')) is not 0:
+        sys.stderr.write('The command: {} failed, ' +
+                         'abandoning effort.\n'.format(string))
+        sys.exit(1)
+
+
+def main(mode, device, ip=None, route=False, infiniband=False):
     """ Run everything """
+    global devices
+    global routes
     if device == 'lo':
         sys.stderr.write("Cannot run on the loopback device\n")
         sys.exit(1)
@@ -29,46 +46,85 @@ def main(mode, device, ip, route=False):
         if device in devices:
             if devices[device] == 'DOWN':
                 system('ip link set dev ' + device + ' up')
-            if devices[device] == 'UP':
+                sleep(1)
+                devices = network_dev.Devices()
+            if device not in devices.ips or ip.split('/')[0] not in \
+                    [f.split('/')[0] for f in devices.ips[device]]:
                 system('ip addr add ' + ip + ' broadcast ' +
-                       '192.168.1.255 dev ' + device)
-            else:
-                sys.stderr.write('Could not activate ' + device + '\n')
-                sys.exit(1)
-            if route and ip not in routes.default_routes:
+                       '.'.join(ip.split('.')[:3]) + '.255 dev ' + device)
+                system('ip route add ' + '.'.join(ip.split('.')[:3]) + '.0/24 ' +
+                       'dev ' + device)
+            if route:
                 system('ip route add default via ' + ip + ' dev ' + device)
-            elif not route and ip in routes.default_routes:
-                system('ip route delete default via ' + ip + ' dev ' + device)
-    # elif mode == 'stop':
-        # if device in devices:
-            # if ip
-            # if devices[device] == 'DOWN':
+            else:
+                sleep(6)
+                if ip in network_dev.Routes().default_routes:
+                    system('ip route delete default via ' + ip + ' dev ' + device)
+
+            # Do Infiniband modification if requested
+            if infiniband:
+                system('ip link set dev ' + device + ' multicast off')
+                system('echo connected > /sys/class/net/' + device + '/mode')
+                system('ip link set dev ' + device + ' mtu 65520')
+        else:
+            sys.stderr.write("{0} is not a valid device\n".format(device))
+            sys.exit(1)
+    elif mode == 'stop':
+        if device in devices:
+            ip = ''
+            if device in devices.ips:
+                for ip in devices.ips[device]:
+                    if ip in routes.default_routes:
+                        system('ip route delete default via ' + ip + ' dev ' + device)
+                    if ip in routes:
+                        system('ip route delete' + ip + ' dev ' + device)
+                    system('ip addr delete ' + ip + ' dev ' + device)
+            if devices[device] == 'UP':
+                system('ip link set dev ' + device + ' down')
+            devices = network_dev.Devices()
+            if not devices[device] == 'DOWN':
+                sys.stderr.write('Could not deactivate ' + device + '\n')
+        else:
+            sys.stderr.write('{} is not a valid device\n'.format(device))
+            sys.exit(1)
+    else:
+        raise Exception('Incorrect mode: {}'.format(mode))
 
 
-routes  = network_dev.Routes()
-devices = network_dev.Devices()
-
+# Command line parsing when run as script
 if __name__ == '__main__' and '__file__' in globals():
     """Command Line Argument Parsing"""
 
+    usage   = 'start_network_dev [-i] [-r] start device IP\n       ' + \
+              'start_network_dev stop device\n       ' + \
+              'start_network_dev [-l] [-h]'
     f_class = argparse.RawDescriptionHelpFormatter
     parser  = argparse.ArgumentParser(description=__doc__,
-                                      formatter_class=f_class)
+                                      formatter_class=f_class,
+                                      usage=usage,
+                                      add_help=False)
 
     # Run choices
-    parser.add_argument('mode', choices=['start', 'stop'], nargs='?',
-                        help="Device to add IP to")
-    parser.add_argument('device', nargs='?',
-                        help="Device to add IP to")
-    parser.add_argument('IP',  nargs='?',
-                        help="IP to add")
+    primary = parser.add_argument_group("Run Options")
+    primary.add_argument('mode', choices=['start', 'stop'], nargs='?',
+                         help="Run mode")
+    primary.add_argument('device', nargs='?',
+                         help="Device to add IP to")
+    primary.add_argument('IP',  nargs='?',
+                         help="IP to add")
 
     # Extras
     mod = parser.add_argument_group("Modify behaviour")
     mod.add_argument('-i', '--infiniband', action='store_true',
                      help="Run extra Infiniband clean up code")
-    mod.add_argument('-l', '--list', action='store_true',
-                     help="List all devices and routes")
+    mod.add_argument('-r', '--route', action='store_true',
+                     help="Add a default route for the device")
+
+    help = parser.add_argument_group("Help")
+    help.add_argument('-l', '--list', action='store_true',
+                      help="List all devices and routes")
+    help.add_argument('-h', '--help', action='help',
+                      help="Display this help and exit")
 
     args = parser.parse_args()
     if args.list:
@@ -77,9 +133,17 @@ if __name__ == '__main__' and '__file__' in globals():
         print()
         print(routes)
         parser.exit(0)
-    if not args.mode or not args.device or not args.IP:
+    if not args.mode or not args.device:
+        parser.print_usage()
+        parser.exit(0)
+    if args.mode == 'start' and not args.IP:
         parser.print_usage()
         parser.exit(0)
 
+    # Check if running as root
+    if not environ['USER'] == 'root':
+        sys.stderr.write('WARNING --> You are not running as root, ' +
+                         'this will probably fail.\n')
+
     # Run the script
-    main(args.mode, args.device, args.IP)
+    main(args.mode, args.device, args.IP, args.route, args.infiniband)
